@@ -318,7 +318,11 @@ class StructuredOutputManager:
             return request.structured_output_request.reasoning_ended
         return True
 
-    def should_advance(self, request: "Request") -> bool:
+    def should_advance(
+        self,
+        request: "Request",
+        new_token_ids: Iterable[int] | None = None,
+    ) -> bool:
         if not request.use_structured_output:
             return False
 
@@ -341,14 +345,20 @@ class StructuredOutputManager:
         if structured_req.reasoning_ended:
             return True
 
-        # Check if reasoning ends in *this* step
-        delta_from = request.num_computed_tokens - request.num_output_placeholders
         all_token_ids = request.all_token_ids
-        start = (
-            delta_from if delta_from >= 0 else max(len(all_token_ids) + delta_from, 0)
-        )
+        if new_token_ids is None:
+            # Check if reasoning ends in *this* step.
+            delta_from = request.num_computed_tokens - request.num_output_placeholders
+            start = (
+                delta_from
+                if delta_from >= 0
+                else max(len(all_token_ids) + delta_from, 0)
+            )
+            new_token_ids = itertools.islice(all_token_ids, start, None)
+
         if reasoner.is_reasoning_end_streaming(
-            all_token_ids, itertools.islice(all_token_ids, start, None)
+            all_token_ids,
+            new_token_ids,
         ):
             # Reasoning just ended, so we shouldn't advance til
             # next pass

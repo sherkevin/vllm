@@ -11,6 +11,8 @@ from vllm.config import ModelConfig, SchedulerConfig, VllmConfig
 from vllm.v1.request import Request
 from vllm.v1.structured_output import StructuredOutputManager
 
+pytestmark = pytest.mark.skip_global_cleanup
+
 
 class MockReasoner:
     def __init__(self, tokenizer):
@@ -212,6 +214,49 @@ class TestReasoningStructuredOutput:
             mock_request_with_structured_output.structured_output_request.reasoning_ended
             is True
         )
+        assert result is False
+
+    def test_should_advance_uses_passed_new_token_ids(
+        self,
+        manager_with_reasoner,
+        mock_request_with_structured_output,
+    ):
+        """Test should_advance checks the actual emitted tokens when provided."""
+        (
+            mock_request_with_structured_output.structured_output_request
+        ).reasoning_ended = False
+        mock_request_with_structured_output.num_computed_tokens = 5
+        mock_request_with_structured_output.num_output_placeholders = 0
+        mock_request_with_structured_output.all_token_ids = [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+        ]
+        reasoner = MockReasoner(tokenizer=Mock())
+        reasoner.is_reasoning_end_streaming.side_effect = (
+            lambda _all_token_ids, delta_token_ids: list(delta_token_ids) == [7, 8]
+        )
+        structured_req = mock_request_with_structured_output.structured_output_request
+        structured_req.reasoner = reasoner
+        new_token_ids = [7, 8]
+
+        result = manager_with_reasoner.should_advance(
+            mock_request_with_structured_output,
+            new_token_ids,
+        )
+
+        reasoner.is_reasoning_end_streaming.assert_called_once()
+        all_token_ids, delta_token_ids = reasoner.is_reasoning_end_streaming.call_args[
+            0
+        ]
+        assert all_token_ids == mock_request_with_structured_output.all_token_ids
+        assert list(delta_token_ids) == new_token_ids
+        assert structured_req.reasoning_ended is True
         assert result is False
 
     def test_should_advance_reasoning_already_ended(
